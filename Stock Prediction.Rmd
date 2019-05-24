@@ -1,0 +1,383 @@
+---
+title: "HarvardX Professional Certificate in Data Science - Prediction of Amazon Stock"
+author: "Ferdinand Pieterse"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    toc: true
+    number_sections: yes
+          
+        
+---
+
+```{r install load, include=FALSE}
+# Install and Load required packages
+if(!require(quantmod)) install.packages("quantmod", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(e1071)) install.packages("e1071", repos = "http://cran.us.r-project.org")
+if(!require(ggcorrplot)) install.packages("ggcorrplot", repos = "http://cran.us.r-project.org")
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+library(quantmod)
+library(data.table)
+library(tidyverse)
+library(caret)
+library(e1071)
+library(ggcorrplot)
+library(kableExtra)
+library(knitr)
+
+```
+
+```{r global_options, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE,fig.width=12, fig.height=8,
+                     warning=FALSE, message=FALSE)
+```
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+&nbsp;
+
+# Introduction
+
+This project is produced for the capstone for HarvardX Professional Certificate in Data Science. It a methodology to predict whether a particular stock will increase or decrease the following trading day.
+
+In the ten years since the Global Financial Crisis in 2009 the United States stock market has recovered well.  This recovery has, and continues to present traders and investors with opportunities to earn attractive returns if they are able to purchase stocks that are likely to increase.
+
+One company that has frequently been in the headlines over the last few years is Amazon. In this paper an attempt is made to predict the stock of this company.
+
+We will use the k Nearest Neighbours (kNN) machine learning algorithm for our prediction. The prediction system developed here makes the assumption that a stock's movement is related to other similar stocks. Amazon is in the Technology sector and we will use a number of well-known stocks in the Technology industry as features to try and predict whether the stock of Amazon will increase the following day.
+
+
+
+\pagebreak
+
+## Data Set
+
+The historical price, dividend, and split data for most stocks can be obtained from Yahoo Finance (https://finance.yahoo.com/).
+
+We will download historical data for our target stock Amazon, for the Dow Jones Industrial Average as well as for 10 other well known stocks in the Technology sector.
+
+The following stocks are downloaded as individual data sets and then combined into data frames that can be used in our analysis.
+
+```{r load data, include = FALSE}
+
+# Import data from yahoo finance
+getSymbols(c("^DJI","AMZN"), src = "yahoo")
+getSymbols(c("AAPL","CSCO","GOOG","HPQ","IBM"), src = "yahoo")
+getSymbols(c("INTC","MSFT","ORCL","QCOM","TXN"), src = "yahoo")
+
+# Convert imported data to data frames
+DJI <-as.data.frame(as.data.table(DJI)) %>% select(Date = index, DJI = DJI.Adjusted)
+AMZN <-as.data.frame(as.data.table(AMZN)) %>% select(Date = index, AMZN = AMZN.Adjusted)
+AAPL <-as.data.frame(as.data.table(AAPL)) %>% select(Date = index, AAPL = AAPL.Adjusted)
+CSCO <-as.data.frame(as.data.table(CSCO)) %>% select(Date = index, CSCO = CSCO.Adjusted)
+GOOG <-as.data.frame(as.data.table(GOOG)) %>% select(Date = index, GOOG = GOOG.Adjusted)
+HPQ <-as.data.frame(as.data.table(HPQ)) %>% select(Date = index, HPQ = HPQ.Adjusted)
+IBM <-as.data.frame(as.data.table(IBM)) %>% select(Date = index, IBM = IBM.Adjusted)
+INTC <-as.data.frame(as.data.table(INTC)) %>% select(Date = index, INTC = INTC.Adjusted)
+MSFT <-as.data.frame(as.data.table(MSFT)) %>% select(Date = index, MSFT = MSFT.Adjusted)
+ORCL <-as.data.frame(as.data.table(ORCL)) %>% select(Date = index, ORCL =ORCL.Adjusted)
+QCOM <-as.data.frame(as.data.table(QCOM)) %>% select(Date = index, QCOM = QCOM.Adjusted)
+TXN <-as.data.frame(as.data.table(TXN)) %>% select(Date = index, TXN = TXN.Adjusted)
+
+```
+
+```{r stocks downloaded}
+
+# downloaded stocks
+stock_table <- data_frame(Symbol = "DJI", Name = "Dow Jones")
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "AMZN",Name = "Amazon"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "AAPL",Name = "Apple"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "CSCO",Name = "Cisco"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "GOOG",Name = "Google"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "HPQ",Name = "Hewlett Packard"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "IBM",Name = "IBM"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "INTC",Name = "Intel"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "MSFT",Name = "Microsoft"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "ORCL",Name = "Oracle"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "QCOM",Name = "Qualcom"))
+stock_table <- bind_rows(stock_table,data_frame(Symbol = "TXN",Name = "Texas Intruments"))
+stock_table %>% kable()
+
+```
+
+
+
+## Goal
+
+The goal of this project is to create a stock forecasting system by developing a machine learning algorithm that predicts whether the price of a stock will increase or decrease the following day.
+
+The algorithm used is k Nearest Neighbours or kNN. The success of the algorithm will be evaluated by calculating the accuracy of the prediction.
+
+A prediction accuracy of 50% would be the same as randomly guessing whether the stock will increase. It is often extremely hard to predict the price of stocks. If we could make an improvement of 5% over random guessing, it will be deemed a successful model as this margin can make a difference given the amount of money at stake.
+
+Therefore we will strive for a prediction accuracy in our validation (Testing) data set of at least 55%. The higher the prediction accuracy, the better the model.
+
+
+## Key Steps
+
+* Download the individual stock datasets from Yahoo Finance
+* Ensure all downloaded datasets has the same number of observations and no missing values
+* Create a dataset for the Performance of the US Stock Market as a whole and for Amazon Stock
+* Create a combined Dataset containing all 11 downloaded stocks (including Amazon Stock)
+* Trim down the dataset to contain the past 10 years of data of Amazon and the 5 stocks most highly correlated to Amazon
+* Split the dataset into:
+    + Training - Nine years of data starting on 1 May 2009
+    + Testing - One year of data starting on 1 May 2018
+* Train the kNN model
+* Determine the accuracy of the model
+
+
+# Analysis
+
+## Data Validation and Cleaning
+
+Verify completeness of the data by making sure all downloaded data sets contain the same number of observations. Ensure none of the data sets contain missing values.
+```{r Check completeness and combine datasets}
+
+# check completeness
+Data_summary <- data_frame(Name = "Dow Jones", Observations = nrow(DJI), Missing = sum(is.na(DJI$DJI)))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Amazon", Observations = nrow(AMZN), Missing = sum(is.na(AMZN$AMZN))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Apple", Observations = nrow(AAPL), Missing = sum(is.na(AAPL$AAPL))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Cisco", Observations = nrow(CSCO), Missing = sum(is.na(CSCO$CSCO))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Google", Observations = nrow(GOOG), Missing = sum(is.na(GOOG$GOOG))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Hewlett Packard", Observations = nrow(HPQ), Missing = sum(is.na(HPQ$HPQ))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "IBM", Observations = nrow(IBM), Missing = sum(is.na(IBM$IBM))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Intel", Observations = nrow(INTC), Missing = sum(is.na(INTC$INTC))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Microsoft", Observations = nrow(MSFT), Missing = sum(is.na(MSFT$MSFT))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Oracle", Observations = nrow(ORCL), Missing = sum(is.na(ORCL$ORCL))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Qualcom", Observations = nrow(QCOM), Missing = sum(is.na(QCOM$QCOM))))
+Data_summary <- bind_rows(Data_summary,data_frame(Name = "Texas Intruments", Observations = nrow(TXN), Missing = sum(is.na(TXN$TXN))))
+Data_summary %>% kable()
+
+# Combine all imported stocks into one temporary data frame and remove redundant date columns
+MasterDataTemp <- cbind.data.frame(AMZN, AAPL, CSCO, GOOG, HPQ, IBM, INTC, MSFT, ORCL, QCOM, TXN)
+MasterDataTemp <- MasterDataTemp[,c(1,2,4,6,8,10,12,14,16,18,20,22)]
+
+
+```
+
+
+
+
+## Exploratory Data Analysis
+
+Our analysis date range starts on 1 May 2009 and ends exactly 10 years later on 30 April 2019. All values are the "adjusted price" which means the closing daily stock price adjusted for dividends and stock splits.
+
+```{r Create Performance Dataset for AMZN and DJI}
+
+Performance <- cbind.data.frame(AMZN, DJI)
+Performance <- Performance[,c(1,2,4)]
+Performance <- Performance %>% filter(Date > "2009-04-30" & Date <= "2019-04-30")
+
+```
+
+The Dow Jones Industrial Average (DJI) is a widely accepted proxy for the performance of the entire United States stock market.
+During the time frame of our analysis the value of the DJI increased from ```r paste(round(Performance$DJI[Performance$Date=="2009-05-01"],2))``` on 1 May 2009 to ```r paste(round(Performance$DJI[Performance$Date=="2019-04-30"],2))```
+on 30 April 2019,
+which represents a 10 year return of ```r round((Performance$DJI[Performance$Date=="2019-04-30"]/Performance$DJI[Performance$Date=="2009-05-01"]-1),2)*100```% or ```r round((Performance$DJI[Performance$Date=="2019-04-30"]/Performance$DJI[Performance$Date=="2009-05-01"]-1),2)*100/10```% per year.
+
+The value of the DJI over ten years were as follows:
+
+```{r performance of DJI,fig.height=6, fig.align='center'}
+
+# Performance chart of DJI
+
+ ggplot(Performance, aes(Date)) + 
+  geom_line(aes(y = DJI), colour = "red") +
+  ylab("Value") +
+  xlab("Years") +
+  ggtitle("Historic Performance of DJI May 2009 to April 2019")+
+  theme(plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text=element_text(size=14))
+
+```
+
+
+Similarly the Stock of Amazon showed even more impressive returns:
+On 1 May 2009 the adjusted value of this stock was ```r paste("$",round(Performance$AMZN[Performance$Date=="2009-05-01"],2))``` and it had moved to an adjusted value of ```r paste("$",round(Performance$AMZN[Performance$Date=="2019-04-30"],2))``` on 30 April 2019.
+
+This equates to a 10 year return of ```r round((Performance$AMZN[Performance$Date=="2019-04-30"]/Performance$AMZN[Performance$Date=="2009-05-01"]-1),2)*100```% or ```r round((Performance$AMZN[Performance$Date=="2019-04-30"]/Performance$AMZN[Performance$Date=="2009-05-01"]-1),2)*100/10```% per year
+
+
+The performance chart of Amazon over ten years were as follows:
+```{r performance of Amazon, fig.height=6, fig.align='center'}
+
+# Performance chart of AMZN
+ggplot(Performance, aes(Date)) + 
+  geom_line(aes(y = AMZN), colour = "blue") +
+  ylab("Value") +
+  xlab("Years") +
+  ggtitle("Historic Performance of Amazon Stock May 2009 to April 2019")+
+  theme(plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text=element_text(size=14))
+
+```
+When the performance charts of the Dow Jones are combined with Amazon it is clear how impressive the performance of Amazon was.
+
+Due to the fact that the value of the Dow Jones is much higher than that of Amazon we perform a log transformation to enable a more meaningful comparison.
+```{r performance of market and DJI,fig.height=6, fig.align='center'}
+
+# Performance charts of DJI and AMZN combined with log transformation
+ggplot(Performance, aes(Date)) + 
+  geom_line(aes(y = AMZN, colour = "red" )) +
+  geom_line(aes(y = DJI, colour = "blue")) +
+  scale_color_discrete(name = "",labels = c("DJI", "Amazon")) +
+  scale_y_continuous(trans='log10') +
+  ylab("Value - Log10") +
+  xlab("Years") +
+  ggtitle("Historic Performance of DJI vs Amazon")+
+  theme(plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text=element_text(size=14))
+
+```
+
+
+## Modelling Approach
+
+### Explanation of the k Nearest Neighbours (kNN) algorithm
+The kNN algorithm is a non-parametric algorithm that can be used for either classification or regression. Non-parametric means that it makes no assumptions about the underlying data distribution.
+
+For each data point, the algorithm finds the k closest observations (neighbours), and then classifies the data point to the majority. Usually, the k closest observations are defined as the ones with the smallest Euclidean distance to the data point under consideration.
+
+Euclidean distance is the shortest distance between two points in a plane. By using this formula, you can calculate distance between two points no matter how many features you are given. The formula to calculate it is:
+$$ \sqrt{{\displaystyle\sum_{i=1}^{n} (a_{i} - b_{i})^{2}}} $$
+Where ${n}$ is the number of features
+
+### Create outcome field
+An additional field is created for Amazon, indicating "TRUE" if the stock rose from the prior day to the current day and indicating "FALSE" if not. This column is the outcome which we wish to predict.
+```{r outcome column}
+
+# Create temporary dataframe for Amazon's prior day's data -  using 10 years from 30 April 2009 to 29 April 2019
+AmazonPrior <- MasterDataTemp %>% filter(Date >= "2009-04-30" & Date <= "2019-04-29") %>% 
+              select(Date.Prior = Date, AMZN.Prior = AMZN)
+
+# Create temporary dataframe for Amazon's current day's data - using 10 years from 1 May 2009 to 30 April 2019
+AmazonCurrent <- MasterDataTemp %>% filter(Date >= "2009-05-01" & Date <= "2019-04-30") %>% 
+                select(Date.Current = Date, AMZN.Current = AMZN)
+
+# Create temporary data set with columns indicating whether Amazon stock increased from the prior day to the current day
+AmazonIncrease <- cbind.data.frame(AmazonPrior, AmazonCurrent) %>% 
+      mutate(AMZN.Increase = ifelse(AMZN.Current - AMZN.Prior <= 0, FALSE, TRUE)) %>%
+      select(AMZN.Increase)
+
+# Filter Master data set for to include 10 years from 1 May 2009 to 30 April 2019
+MasterDataTemp <- MasterDataTemp %>% filter(Date >= "2009-05-01" & Date <= "2019-04-30")
+
+# Add Amazon increase indicator to temporary Masterdata data set
+MasterData <- cbind.data.frame(MasterDataTemp, AmazonIncrease)
+
+```
+
+### Determine which features to use
+k-Nearest Neighbors is computationally heavy, particularly in high dimensionality, so to save processing resources and create a more robust model, only the 5 downloaded stocks that are the most highly correlated to Amazon are identified and used with the Amazon stock price as features to predict the outcome.
+
+```{r correlation matrix, fig.height=7, fig.align='center'}
+
+ggcorrplot(cor(MasterData[,2:12]), lab = TRUE,
+           show.legend = FALSE) +
+  ggtitle("Correlation Matrix") +
+  theme(plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+```
+
+
+As can be seen from the correlation matrix above, the 5 stocks that has the highest correlation and that will therefore be used with the Amazon stock price to predict the outcome is:
+
+```{r stocks for analysis}
+
+# stocks for analysis
+stock_table_analysis <- data_frame(Symbol = "CSCO",Name = "Cisco")
+stock_table_analysis <- bind_rows(stock_table_analysis,data_frame(Symbol = "GOOG",Name = "Google"))
+stock_table_analysis <- bind_rows(stock_table_analysis,data_frame(Symbol = "INTC",Name = "Intel"))
+stock_table_analysis <- bind_rows(stock_table_analysis,data_frame(Symbol = "MSFT",Name = "Microsoft"))
+stock_table_analysis <- bind_rows(stock_table_analysis,data_frame(Symbol = "TXN",Name = "Texas Intruments"))
+stock_table_analysis %>% kable()
+
+```
+
+
+```{r final analysis dataset}
+
+# Create Final Master Data Set With Stocks to be used in model
+MasterDataAnalysis <- MasterData[,c(1,2,4,5,8,9,12,13)]
+
+```
+### Split data into Training and Testing data sets
+We will use the first nine years i.e. 1 May 2009 to 30 April 2018 for the Training data, and the last year i.e. 1 May 2018 to 30 April 2019 for Testing data.
+
+```{r training and test sets}
+
+# Use first 9 years or data set for training and the most recent year for testing
+Training <- MasterDataAnalysis %>% filter(Date <= "2018-04-30")
+Testing <- MasterDataAnalysis %>% filter(Date >= "2018-05-01")
+
+# Caret package used for analysis requires dependent variable top be factor for knn
+Training[["AMZN.Increase"]] <- factor(Training[["AMZN.Increase"]])
+Testing[["AMZN.Increase"]] <- factor(Testing[["AMZN.Increase"]])
+
+# Remove temporary data sets
+rm(MasterData, MasterDataTemp, AmazonPrior, AmazonCurrent, AmazonIncrease)
+rm(DJI, AMZN, AAPL, CSCO, GOOG, HPQ, IBM, INTC, MSFT, ORCL, QCOM, TXN)
+
+```
+
+
+## Train the kNN model
+The model is trained with the knn algorithm implementation of the caret package.
+```{r train model}
+
+# Train using caret package
+trctrl <- trainControl(method = "repeatedcv", number = 33, repeats = 3)
+set.seed(3)
+knn_model <- train(AMZN.Increase ~., data = Training, method = "knn",
+                    trControl=trctrl,
+                    tuneLength = 10)
+```
+
+The caret package automatically selects the number of neighbours that delivers the highest accuracy of the training set.
+
+```{r optimal k}
+
+# optimal k in training set
+knn_model %>% ggplot(aes(k,accuracy)) + geom_line()+
+  ggtitle("Optimal number of Neighbours") +
+  theme(plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text=element_text(size=14))
+
+
+tr<-knn_model$results[c("k","Accuracy")]
+
+```
+
+From the chart above it is clear the optimal number of neighbours to use is ```r tr$k[which.max(tr$Accuracy)]```.
+
+\pagebreak
+
+
+# Findings / Results
+The optimal neigbours equals an accuracy in the training set of ```r round(max(knn_model$results["Accuracy"]),3)*100```%, which does not seem to be very useful as it is just barely better than randomly guessing.
+However when we run the model against the validation set it produces the following confusion matrix and statistics:
+```{r validation set confusion matrix}
+# Determine Accuracy of Testing (validation) Set
+prediction <- predict(knn_model, newdata = Testing)
+cm <- confusionMatrix(prediction, Testing[,8])
+cm
+
+```
+
+The high number of predicted increases (Prediction is TRUE) when the stock actually retreated (Reference is FALSE), can most likely be ascribed to the fact that we are in a bull (upward trending) market.
+However from the statistics above, it is clear the overall accuracy comes to ```r round(cm$overall["Accuracy"],3)*100  ```%.
+
+# Conclusion
+Since we have achieved an accuracy of ```r round(cm$overall["Accuracy"],3)*100  ```% in our Testing set, which beats our stated goal of 55% by ```r round(cm$overall["Accuracy"],3)*100-55  ```%, the model is usable and should be able to provide an edge in trading the stock of Amazon.
